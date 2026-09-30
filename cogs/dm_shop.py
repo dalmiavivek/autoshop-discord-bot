@@ -52,11 +52,18 @@ class ClientEmailModal(discord.ui.Modal, title="📧 Enter Email for Shoppex Inv
 
     async def on_submit(self, interaction: discord.Interaction):
         client_email = self.email_input.value.strip()
+        is_dm = (interaction.guild is None)
+
         if "@" not in client_email or "." not in client_email:
-            await interaction.response.send_message("❌ Please provide a valid email address.", ephemeral=True)
+            if is_dm:
+                await interaction.response.send_message("❌ Please provide a valid email address.")
+            else:
+                await interaction.response.send_message("❌ Please provide a valid email address.", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=(not is_dm))
+
         db: OrderDatabase = self.bot.db
         provider: StoreProvider = self.bot.provider
 
@@ -95,17 +102,21 @@ class ClientEmailModal(discord.ui.Modal, title="📧 Enter Email for Shoppex Inv
                 deposit_address = os.getenv(env_key, "").strip()
 
             if not deposit_address:
-                await interaction.followup.send(
+                msg = (
                     f"⚠️ The store does not have **{self.token}** enabled in Shoppex or configured via `/setcrypto`.\n"
-                    f"Please choose another payment token or contact an administrator.",
-                    ephemeral=True
+                    f"Please choose another payment token or contact an administrator."
                 )
+                if is_dm:
+                    await interaction.followup.send(msg)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
                 return
 
             crypto_price = await get_crypto_price(self.token, fiat=fiat_currency)
             seed = int(interaction.user.id % 1000)
             expected_crypto = calculate_invoice_crypto_amount(fiat_amount, crypto_price, seed, self.token)
             source_label = "Admin Wallet"
+
 
         # 3. Create Invoice in Database
         invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
@@ -209,7 +220,11 @@ class DMProductDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         prod = self.products_map.get(self.values[0])
         if not prod:
-            await interaction.response.send_message("❌ Product not found.", ephemeral=True)
+            is_dm = (interaction.guild is None)
+            if is_dm:
+                await interaction.response.send_message("❌ Product not found.")
+            else:
+                await interaction.response.send_message("❌ Product not found.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -218,7 +233,8 @@ class DMProductDropdown(discord.ui.Select):
             color=discord.Color.blurple()
         )
         view = DMCryptoTokenSelect(self.bot, prod, self.guild_id)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, view=view)
+
 
 
 class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
