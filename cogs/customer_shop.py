@@ -57,7 +57,7 @@ class ProductSelect(discord.ui.Select):
         checkout_url = prod.get("url") or self.provider.get_checkout_url(prod.get("slug") or prod['id'])
 
         # Create interactive view with dropdown + buy button
-        view = ProductView(self.products_map, self.provider, checkout_url=checkout_url, in_stock=(prod['stock'] != 0), selected_product=prod)
+        view = ProductView(self.products_map, self.provider, checkout_url=checkout_url, in_stock=(prod['stock'] != 0), selected_product_id=prod['id'])
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -72,8 +72,8 @@ class BuyInDMButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         dm_cog = interaction.client.get_cog("DM Shop & Crypto")
         if dm_cog:
-            selected_prod = getattr(self.view, "selected_product", None)
-            await dm_cog.buy_dm(interaction, selected_product=selected_prod)
+            selected_id = getattr(self.view, "selected_product_id", None)
+            await dm_cog.buy_dm(interaction, product_id=selected_id)
         else:
             is_dm = (interaction.guild is None)
             if is_dm:
@@ -91,11 +91,12 @@ class ProductView(discord.ui.View):
         provider: StoreProvider,
         checkout_url: Optional[str] = None,
         in_stock: bool = True,
-        selected_product: Optional[Dict[str, Any]] = None
+        selected_product_id: Optional[str] = None
     ):
         super().__init__(timeout=180)
-        self.selected_product = selected_product
+        self.selected_product_id = selected_product_id
         self.add_item(ProductSelect(list(products_map.values()), provider))
+
 
 
         if checkout_url:

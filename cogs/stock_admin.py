@@ -5,9 +5,10 @@ import os
 import logging
 from typing import Optional, List
 from providers.base import StoreProvider
-from dataxbase import OrderDatabase
+from database import OrderDatabase
 
 logger = logging.getLogger(__name__)
+
 
 def is_admin():
     """Custom check to ensure command caller is a bot admin."""

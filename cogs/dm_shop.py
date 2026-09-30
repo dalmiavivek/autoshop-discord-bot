@@ -232,7 +232,8 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
         self.refresh_invoices_task.cancel()
 
     @app_commands.command(name="buydm", description="Buy products directly in your private DMs with crypto.")
-    async def buy_dm(self, interaction: discord.Interaction, selected_product: Optional[Dict[str, Any]] = None):
+    @app_commands.describe(product_id="Optional: Product ID to buy directly")
+    async def buy_dm(self, interaction: discord.Interaction, product_id: Optional[str] = None):
         is_dm = (interaction.guild is None)
 
         # 1. Immediately acknowledge interaction within milliseconds to satisfy Discord 3-second limit
@@ -243,24 +244,28 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
                 pass
 
         guild_id = interaction.guild_id or int(os.getenv("GUILD_ID", "0") or 0)
+        provider: StoreProvider = self.bot.provider
 
-        # If user already selected a product in /shop, go straight to crypto token selection!
-        if selected_product:
-            embed = discord.Embed(
-                title=f"💳 Select Crypto Payment Token for {selected_product['name']}",
-                description=f"Price: **{selected_product['currency']} {selected_product['price']:.2f}**\n\nChoose the cryptocurrency you would like to pay with:",
-                color=discord.Color.blurple()
-            )
-            view = DMCryptoTokenSelect(self.bot, selected_product, guild_id)
-            if is_dm:
-                await interaction.followup.send(embed=embed, view=view)
-            else:
-                try:
-                    await interaction.user.send(embed=embed, view=view)
-                    await interaction.followup.send("📩 I've sent you a direct message to choose your payment coin!", ephemeral=True)
-                except discord.Forbidden:
-                    await interaction.followup.send("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
-            return
+        # If user already selected a product in /shop, fetch and go straight to crypto token selection!
+        if product_id:
+            selected_product = await provider.get_product(product_id.strip())
+            if selected_product:
+                embed = discord.Embed(
+                    title=f"💳 Select Crypto Payment Token for {selected_product['name']}",
+                    description=f"Price: **{selected_product['currency']} {selected_product['price']:.2f}**\n\nChoose the cryptocurrency you would like to pay with:",
+                    color=discord.Color.blurple()
+                )
+                view = DMCryptoTokenSelect(self.bot, selected_product, guild_id)
+                if is_dm:
+                    await interaction.followup.send(embed=embed, view=view)
+                else:
+                    try:
+                        await interaction.user.send(embed=embed, view=view)
+                        await interaction.followup.send("📩 I've sent you a direct message to choose your payment coin!", ephemeral=True)
+                    except discord.Forbidden:
+                        await interaction.followup.send("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
+                return
+
 
         # Otherwise, fetch products and show dropdown
         provider: StoreProvider = self.bot.provider
