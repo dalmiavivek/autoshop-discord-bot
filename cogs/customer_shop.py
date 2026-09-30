@@ -57,7 +57,7 @@ class ProductSelect(discord.ui.Select):
         checkout_url = prod.get("url") or self.provider.get_checkout_url(prod.get("slug") or prod['id'])
 
         # Create interactive view with dropdown + buy button
-        view = ProductView(self.products_map, self.provider, checkout_url=checkout_url, in_stock=(prod['stock'] != 0))
+        view = ProductView(self.products_map, self.provider, checkout_url=checkout_url, in_stock=(prod['stock'] != 0), selected_product=prod)
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -72,17 +72,31 @@ class BuyInDMButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         dm_cog = interaction.client.get_cog("DM Shop & Crypto")
         if dm_cog:
-            await dm_cog.buy_dm(interaction)
+            selected_prod = getattr(self.view, "selected_product", None)
+            await dm_cog.buy_dm(interaction, selected_product=selected_prod)
         else:
-            await interaction.response.send_message("DM checkout service is currently unavailable.", ephemeral=True)
+            is_dm = (interaction.guild is None)
+            if is_dm:
+                await interaction.response.send_message("DM checkout service is currently unavailable.")
+            else:
+                await interaction.response.send_message("DM checkout service is currently unavailable.", ephemeral=True)
 
 
 class ProductView(discord.ui.View):
     """View container for shop dropdown and buy button."""
 
-    def __init__(self, products_map: Dict[str, Dict[str, Any]], provider: StoreProvider, checkout_url: Optional[str] = None, in_stock: bool = True):
+    def __init__(
+        self,
+        products_map: Dict[str, Dict[str, Any]],
+        provider: StoreProvider,
+        checkout_url: Optional[str] = None,
+        in_stock: bool = True,
+        selected_product: Optional[Dict[str, Any]] = None
+    ):
         super().__init__(timeout=180)
+        self.selected_product = selected_product
         self.add_item(ProductSelect(list(products_map.values()), provider))
+
 
         if checkout_url:
             if in_stock:

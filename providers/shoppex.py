@@ -1,5 +1,6 @@
 import aiohttp
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from .base import StoreProvider
 
@@ -12,6 +13,8 @@ class ShoppexProvider(StoreProvider):
         self.api_key = api_key.strip()
         self.store_domain = store_domain.strip().replace("https://", "").replace("http://", "").rstrip("/")
         self.base_url = "https://api.shoppex.io"
+        self._products_cache: List[Dict[str, Any]] = []
+        self._cache_time: float = 0.0
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -21,8 +24,13 @@ class ShoppexProvider(StoreProvider):
         }
 
     async def get_products(self) -> List[Dict[str, Any]]:
-        """Fetch all products from Shoppex."""
+        """Fetch all products from Shoppex with 30-second memory cache."""
+        now = time.time()
+        if self._products_cache and (now - self._cache_time < 30):
+            return self._products_cache
+
         url = f"{self.base_url}/dev/v1/products"
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=self._headers(), timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -56,10 +64,15 @@ class ShoppexProvider(StoreProvider):
                             "description": p.get("description") or "",
                             "url": self.get_checkout_url(slug)
                         })
+                    self._products_cache = normalized
+                    self._cache_time = now
                     return normalized
         except Exception as e:
             logger.error(f"Error fetching products from Shoppex: {e}")
+            if self._products_cache:
+                return self._products_cache
             return []
+
 
     async def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Fetch details for a single product."""

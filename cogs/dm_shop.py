@@ -232,33 +232,65 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
         self.refresh_invoices_task.cancel()
 
     @app_commands.command(name="buydm", description="Buy products directly in your private DMs with crypto.")
-    async def buy_dm(self, interaction: discord.Interaction):
+    async def buy_dm(self, interaction: discord.Interaction, selected_product: Optional[Dict[str, Any]] = None):
+        is_dm = (interaction.guild is None)
+
+        # 1. Immediately acknowledge interaction within milliseconds to satisfy Discord 3-second limit
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.defer(ephemeral=(not is_dm))
+            except Exception:
+                pass
+
+        guild_id = interaction.guild_id or int(os.getenv("GUILD_ID", "0") or 0)
+
+        # If user already selected a product in /shop, go straight to crypto token selection!
+        if selected_product:
+            embed = discord.Embed(
+                title=f"💳 Select Crypto Payment Token for {selected_product['name']}",
+                description=f"Price: **{selected_product['currency']} {selected_product['price']:.2f}**\n\nChoose the cryptocurrency you would like to pay with:",
+                color=discord.Color.blurple()
+            )
+            view = DMCryptoTokenSelect(self.bot, selected_product, guild_id)
+            if is_dm:
+                await interaction.followup.send(embed=embed, view=view)
+            else:
+                try:
+                    await interaction.user.send(embed=embed, view=view)
+                    await interaction.followup.send("📩 I've sent you a direct message to choose your payment coin!", ephemeral=True)
+                except discord.Forbidden:
+                    await interaction.followup.send("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
+            return
+
+        # Otherwise, fetch products and show dropdown
         provider: StoreProvider = self.bot.provider
         products = await provider.get_products()
 
         if not products:
-            await interaction.response.send_message("❌ No active products available in the shop.", ephemeral=True)
+            msg = "❌ No active products available in the shop."
+            if is_dm:
+                await interaction.followup.send(msg)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
             return
 
-        guild_id = interaction.guild_id or int(os.getenv("GUILD_ID", "0") or 0)
+        embed = discord.Embed(
+            title="🛍️ Private DM Checkout",
+            description="Select a product below to generate your unique crypto payment invoice.",
+            color=discord.Color.purple()
+        )
+        view = discord.ui.View()
+        view.add_item(DMProductDropdown(self.bot, products, guild_id))
 
-        # Send in DM
-        try:
-            embed = discord.Embed(
-                title="🛍️ Private DM Checkout",
-                description="Select a product below to generate your unique crypto payment invoice.",
-                color=discord.Color.purple()
-            )
-            view = discord.ui.View()
-            view.add_item(DMProductDropdown(self.bot, products, guild_id))
+        if is_dm:
+            await interaction.followup.send(embed=embed, view=view)
+        else:
+            try:
+                await interaction.user.send(embed=embed, view=view)
+                await interaction.followup.send("📩 I've sent you a direct message to continue checkout!", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.followup.send("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
 
-            await interaction.user.send(embed=embed, view=view)
-            if interaction.guild:
-                await interaction.response.send_message("📩 I've sent you a direct message to continue checkout!", ephemeral=True)
-            else:
-                await interaction.response.send_message("Please select an item above.", ephemeral=True)
-        except discord.Forbidden:
-            await interaction.response.send_message("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
 
     async def check_and_fulfill_invoice(self, inv: Dict[str, Any]) -> tuple[bool, Dict[str, Any]]:
         """
