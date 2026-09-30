@@ -99,12 +99,24 @@ class AutoShopBot(commands.Bot):
         await self.change_presence(status=discord.Status.online, activity=activity)
 
 
+def clean_env_var(val: str, prefix_name: str = "") -> str:
+    if not val:
+        return ""
+    val = val.strip()
+    if prefix_name and val.startswith(f"{prefix_name}="):
+        val = val[len(f"{prefix_name}="):].strip()
+    return val.strip('"').strip("'").strip()
+
+
 async def main():
-    token = os.getenv("DISCORD_TOKEN", "").strip()
+    raw_token = os.getenv("DISCORD_TOKEN", "")
+    token = clean_env_var(raw_token, "DISCORD_TOKEN")
+
     if not token or token == "your_discord_bot_token_here":
-        logger.error("DISCORD_TOKEN is missing or not set in .env file!")
-        logger.error("Please edit .env and insert your bot token from the Discord Developer Portal.")
+        logger.error("DISCORD_TOKEN is missing or not set in environment!")
         sys.exit(1)
+
+    logger.info(f"Starting bot with token ending in: ...{token[-6:] if len(token) >= 6 else token}")
 
     bot = AutoShopBot()
     async with bot:
