@@ -38,6 +38,7 @@ class ShoppexProvider(StoreProvider):
                     normalized = []
                     for p in raw_products:
                         pid = str(p.get("id") or p.get("uniqid") or "")
+                        slug = str(p.get("slug") or pid)
                         title = p.get("title") or p.get("name") or "Unnamed Product"
                         price = float(p.get("price") or 0.0)
                         currency = p.get("currency") or "USD"
@@ -47,12 +48,13 @@ class ShoppexProvider(StoreProvider):
 
                         normalized.append({
                             "id": pid,
+                            "slug": slug,
                             "name": title,
                             "price": price,
                             "currency": currency,
                             "stock": stock,
                             "description": p.get("description") or "",
-                            "url": self.get_checkout_url(pid)
+                            "url": self.get_checkout_url(slug)
                         })
                     return normalized
         except Exception as e:
@@ -70,14 +72,16 @@ class ShoppexProvider(StoreProvider):
                     data = await resp.json()
                     p = data.get("data", data)
                     pid = str(p.get("id") or p.get("uniqid") or product_id)
+                    slug = str(p.get("slug") or pid)
                     return {
                         "id": pid,
+                        "slug": slug,
                         "name": p.get("title") or p.get("name") or "Unnamed Product",
                         "price": float(p.get("price") or 0.0),
                         "currency": p.get("currency") or "USD",
                         "stock": p.get("stock", p.get("available_stock", -1)),
                         "description": p.get("description") or "",
-                        "url": self.get_checkout_url(pid)
+                        "url": self.get_checkout_url(slug)
                     }
         except Exception as e:
             logger.error(f"Error getting Shoppex product {product_id}: {e}")

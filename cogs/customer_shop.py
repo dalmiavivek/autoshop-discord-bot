@@ -54,7 +54,7 @@ class ProductSelect(discord.ui.Select):
         embed.add_field(name="🆔 Product ID", value=f"`{prod['id']}`", inline=True)
         embed.set_footer(text="Click 'Buy Now' below to purchase via official checkout.")
 
-        checkout_url = self.provider.get_checkout_url(prod['id'])
+        checkout_url = prod.get("url") or self.provider.get_checkout_url(prod.get("slug") or prod['id'])
 
         # Create interactive view with dropdown + buy button
         view = ProductView(self.products_map, self.provider, checkout_url=checkout_url, in_stock=(prod['stock'] != 0))
@@ -149,7 +149,7 @@ class CustomerShopCog(commands.Cog, name="Store & Customer"):
             await interaction.followup.send(f"❌ Product `{product_id}` not found on the store.", ephemeral=True)
             return
 
-        checkout_url = self.provider.get_checkout_url(product_id)
+        checkout_url = product.get("url") or self.provider.get_checkout_url(product.get("slug") or product_id)
         stock_status = f"{product['stock']} available" if product['stock'] >= 0 else "Unlimited"
 
         embed = discord.Embed(
