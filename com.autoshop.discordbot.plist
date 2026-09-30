@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.autoshop.discordbot</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/vivekdalmia/.gemini/antigravity/scratch/autoshop-discord-bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/vivekdalmia/.gemini/antigravity/scratch/autoshop-discord-bot/venv/bin/python</string>
+        <string>/Users/vivekdalmia/.gemini/antigravity/scratch/autoshop-discord-bot/bot.py</string>
+    </array>
+
+    <!-- KeepAlive ensures macOS restarts the bot if it ever crashes or stops -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- RunAtLoad starts the bot automatically when you log into your Mac -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/vivekdalmia/.gemini/antigravity/scratch/autoshop-discord-bot/bot_out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/vivekdalmia/.gemini/antigravity/scratch/autoshop-discord-bot/bot_err.log</string>
+</dict>
+</plist>

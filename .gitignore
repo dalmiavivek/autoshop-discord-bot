@@ -1,0 +1,20 @@
+# Environment credentials
+.env
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Local SQLite Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
