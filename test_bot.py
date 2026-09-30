@@ -100,5 +100,75 @@ class TestAutoShopBot(unittest.IsolatedAsyncioTestCase):
         res2 = await provider.add_stock("p1", ["   ", "\n"])
         self.assertFalse(res2["success"])
 
+    def test_database_crypto_addresses(self):
+        """Test setting and getting admin crypto addresses with payout forward."""
+        self.db.set_crypto_address("LTC", "ltc1qtestaddr123", "Litecoin", "ltc1qpayoutvault456")
+        addr_info = self.db.get_crypto_address("LTC")
+        self.assertIsNotNone(addr_info)
+        self.assertEqual(addr_info["address"], "ltc1qtestaddr123")
+        self.assertEqual(addr_info["payout_forward_address"], "ltc1qpayoutvault456")
+
+        # Test updating
+        self.db.set_crypto_address("LTC", "ltc1qnewaddr999", "Litecoin", "")
+        updated_info = self.db.get_crypto_address("ltc")
+        self.assertEqual(updated_info["address"], "ltc1qnewaddr999")
+
+    def test_database_crypto_invoices_and_replay_protection(self):
+        """Test creating invoices, status update, and txid replay prevention."""
+        inv_id = "INV-TEST1234"
+        success = self.db.create_crypto_invoice(
+            invoice_id=inv_id,
+            discord_user_id=11223344,
+            guild_id=99887766,
+            product_id="prod_nitro_1",
+            product_name="Discord Nitro 1M",
+            token="LTC",
+            expected_crypto_amount=0.07542,
+            fiat_amount=5.00,
+            fiat_currency="USD",
+            deposit_address="ltc1qtestaddr123"
+        )
+        self.assertTrue(success)
+
+        # Invoice exists and is pending
+        inv = self.db.get_crypto_invoice(inv_id)
+        self.assertIsNotNone(inv)
+        self.assertEqual(inv["status"], "PENDING")
+        self.assertEqual(inv["token"], "LTC")
+        self.assertEqual(inv["expected_crypto_amount"], 0.07542)
+
+        # Initially txid is not used
+        test_txid = "abc123def456789txid"
+        self.assertFalse(self.db.is_txid_used(test_txid))
+
+        # Mark paid with txid
+        self.db.update_invoice_status(inv_id, "PAID", txid=test_txid, ticket_channel_id=556677)
+
+        # Verify updated
+        paid_inv = self.db.get_crypto_invoice(inv_id)
+        self.assertEqual(paid_inv["status"], "PAID")
+        self.assertEqual(paid_inv["txid"], test_txid)
+        self.assertEqual(paid_inv["ticket_channel_id"], 556677)
+
+        # Now txid is marked as used
+        self.assertTrue(self.db.is_txid_used(test_txid))
+
+    def test_crypto_tracker_amount_and_qr(self):
+        """Test amount calculation micro-offsets and QR code URI generation."""
+        from providers.crypto_tracker import calculate_invoice_crypto_amount, get_qr_code_url
+
+        # Amount with offset
+        ltc_amt_1 = calculate_invoice_crypto_amount(10.0, 100.0, 1, "LTC")
+        ltc_amt_2 = calculate_invoice_crypto_amount(10.0, 100.0, 2, "LTC")
+        self.assertNotEqual(ltc_amt_1, ltc_amt_2)
+        self.assertGreater(ltc_amt_1, 0.1)
+
+        # QR code url
+        qr_ltc = get_qr_code_url("LTC", "ltc1qtest", 0.05)
+        self.assertIn("litecoin%3Altc1qtest", qr_ltc)
+        self.assertIn("api.qrserver.com", qr_ltc)
+
+
 if __name__ == "__main__":
     unittest.main()
+

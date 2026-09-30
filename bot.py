@@ -45,7 +45,9 @@ class AutoShopBot(commands.Bot):
         # Load cogs
         initial_extensions = [
             "cogs.stock_admin",
-            "cogs.customer_shop"
+            "cogs.customer_shop",
+            "cogs.tickets",
+            "cogs.dm_shop"
         ]
 
         for ext in initial_extensions:

@@ -5,7 +5,7 @@ import os
 import logging
 from typing import Optional, List
 from providers.base import StoreProvider
-from database import OrderDatabase
+from dataxbase import OrderDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,76 @@ class StockAdminCog(commands.Cog, name="Stock Administration"):
                 await interaction.followup.send(f"✅ Synced {len(synced)} command(s) globally.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Sync failed: {e}", ephemeral=True)
+
+    @app_commands.command(name="setcrypto", description="[Admin] Set receiving and forward payout crypto addresses for DM shop.")
+    @app_commands.describe(
+        token="Crypto Currency (LTC, USDT, BTC, SOL)",
+        address="The receiving address where customers send payment",
+        forward_payout_address="Optional: separate destination payout address"
+    )
+    @app_commands.choices(token=[
+        app_commands.Choice(name="Litecoin (LTC)", value="LTC"),
+        app_commands.Choice(name="Tether (USDT-TRC20)", value="USDT"),
+        app_commands.Choice(name="Bitcoin (BTC)", value="BTC"),
+        app_commands.Choice(name="Solana (SOL)", value="SOL")
+    ])
+    @is_admin()
+    async def set_crypto(
+        self,
+        interaction: discord.Interaction,
+        token: app_commands.Choice[str],
+        address: str,
+        forward_payout_address: Optional[str] = None
+    ):
+        await interaction.response.defer(ephemeral=True)
+        token_val = token.value.upper()
+        clean_addr = address.strip()
+        forward_addr = (forward_payout_address or "").strip()
+
+        self.db.set_crypto_address(
+            token=token_val,
+            address=clean_addr,
+            network=token.name,
+            payout_forward_address=forward_addr
+        )
+
+        embed = discord.Embed(
+            title="✅ Crypto Address Configured",
+            description=f"Updated receiving configuration for **{token.name}** (`{token_val}`).",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="📥 Receiving Address", value=f"`{clean_addr}`", inline=False)
+        if forward_addr:
+            embed.add_field(name="📤 Forward Destination Payout", value=f"`{forward_addr}`", inline=False)
+        embed.set_footer(text="Customers can now purchase using this crypto token in DMs via /buydm.")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="cryptolist", description="[Admin] List all configured crypto receiving and payout addresses.")
+    @is_admin()
+    async def list_crypto(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        addresses = self.db.get_all_crypto_addresses()
+
+        if not addresses:
+            await interaction.followup.send("ℹ️ No crypto addresses configured yet. Use `/setcrypto` to add one.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🪙 Configured Store Crypto Addresses",
+            description="Active receiving and forward payout addresses for DM shop orders.",
+            color=discord.Color.gold()
+        )
+
+        for a in addresses:
+            fwd = f"\n➡️ Forward to: `{a['payout_forward_address']}`" if a.get('payout_forward_address') else ""
+            embed.add_field(
+                name=f"💎 {a['token']} ({a.get('network', a['token'])})",
+                value=f"📥 Receiving: `{a['address']}`{fwd}",
+                inline=False
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

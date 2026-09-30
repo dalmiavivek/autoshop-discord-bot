@@ -61,6 +61,22 @@ class ProductSelect(discord.ui.Select):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
+class BuyInDMButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="💬 Buy in DM (Crypto)",
+            style=discord.ButtonStyle.success,
+            custom_id="btn_trigger_buydm"
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        dm_cog = interaction.client.get_cog("DM Shop & Crypto")
+        if dm_cog:
+            await dm_cog.buy_dm(interaction)
+        else:
+            await interaction.response.send_message("DM checkout service is currently unavailable.", ephemeral=True)
+
+
 class ProductView(discord.ui.View):
     """View container for shop dropdown and buy button."""
 
@@ -71,7 +87,7 @@ class ProductView(discord.ui.View):
         if checkout_url:
             if in_stock:
                 self.add_item(discord.ui.Button(
-                    label="🛒 Buy Now",
+                    label="🛒 Buy Now (Store)",
                     style=discord.ButtonStyle.link,
                     url=checkout_url
                 ))
@@ -79,8 +95,12 @@ class ProductView(discord.ui.View):
                 button = discord.ui.Button(label="Out of Stock", style=discord.ButtonStyle.secondary, disabled=True)
                 self.add_item(button)
 
+        # Button to trigger DM Checkout with Crypto
+        self.add_item(BuyInDMButton())
+
 
 class CustomerShopCog(commands.Cog, name="Store & Customer"):
+
     """Customer-facing commands for browsing stock, purchasing, and verifying orders."""
 
     def __init__(self, bot: commands.Bot, provider: StoreProvider, db: OrderDatabase):
