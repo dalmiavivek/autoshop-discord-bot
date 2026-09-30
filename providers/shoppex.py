@@ -185,3 +185,96 @@ class ShoppexProvider(StoreProvider):
         if self.store_domain:
             return f"https://{self.store_domain}/product/{product_id}"
         return f"https://shoppex.io/product/{product_id}"
+
+    async def create_crypto_payment(
+        self,
+        title: str,
+        customer_email: str,
+        value: float,
+        currency: str,
+        token: str
+    ) -> Dict[str, Any]:
+        """
+        Creates a native crypto payment in Shoppex.
+        Returns the Shoppex-assigned crypto receiving address, exact crypto amount, and invoice metadata.
+        """
+        token_upper = token.upper().strip()
+        chain_map = {
+            "LTC": "LITECOIN",
+            "BTC": "BITCOIN",
+            "SOL": "SOLANA",
+            "USDT": "USDT_TRC20",
+            "USDT_TRC20": "USDT_TRC20",
+            "USDT_SOL": "USDT_SOL",
+            "ETH": "ETHEREUM"
+        }
+        crypto_gateway = chain_map.get(token_upper, token_upper)
+
+        payload = {
+            "title": title,
+            "email": customer_email.strip(),
+            "value": max(float(value), 0.01),
+            "currency": (currency or "EUR").upper(),
+            "gateway": "NATIVE_CRYPTO",
+            "crypto_gateway": crypto_gateway
+        }
+
+        url = f"{self.base_url}/dev/v1/payments"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=self._headers(), json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                    resp_json = await resp.json()
+                    if resp.status in (200, 201):
+                        data = resp_json.get("data", resp_json)
+                        return {
+                            "success": True,
+                            "id": data.get("id"),
+                            "uniqid": data.get("uniqid"),
+                            "crypto_address": data.get("crypto_address"),
+                            "crypto_amount": float(data.get("crypto_amount") or 0.0),
+                            "crypto_uri": data.get("crypto_uri") or "",
+                            "checkout_url": data.get("url") or data.get("url_branded") or "",
+                            "status": data.get("status", "PENDING"),
+                            "raw": data
+                        }
+                    else:
+                        error_msg = resp_json.get("error", {}).get("message") or resp_json.get("message") or str(resp_json)
+                        logger.warning(f"Shoppex create_crypto_payment returned {resp.status}: {error_msg}")
+                        return {
+                            "success": False,
+                            "message": error_msg,
+                            "status_code": resp.status
+                        }
+        except Exception as e:
+            logger.error(f"Error creating Shoppex payment: {e}")
+            return {"success": False, "message": str(e), "status_code": 500}
+
+    async def get_invoice(self, uniqid_or_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch invoice directly by uniqid from Shoppex (/dev/v1/invoices/{uniqid})."""
+        uniqid_or_id = uniqid_or_id.strip()
+        url = f"{self.base_url}/dev/v1/invoices/{uniqid_or_id}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._headers(), timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+                    inv = data.get("data", data)
+                    status = str(inv.get("status") or "").upper()
+                    is_paid = status in ["PAID", "COMPLETED", "FULFILLED", "SUCCESS"]
+                    return {
+                        "id": inv.get("id"),
+                        "uniqid": inv.get("uniqid"),
+                        "status": status,
+                        "is_paid": is_paid,
+                        "crypto_address": inv.get("crypto_address"),
+                        "crypto_amount": float(inv.get("crypto_amount") or 0.0),
+                        "crypto_received": float(inv.get("crypto_received") or 0.0),
+                        "crypto_payment_txid": inv.get("crypto_payment_txid") or "",
+                        "customer_email": inv.get("customer_email"),
+                        "checkout_url": inv.get("url") or inv.get("url_branded") or ""
+                    }
+        except Exception as e:
+            logger.error(f"Error fetching Shoppex invoice {uniqid_or_id}: {e}")
+            return None
+

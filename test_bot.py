@@ -168,7 +168,33 @@ class TestAutoShopBot(unittest.IsolatedAsyncioTestCase):
         self.assertIn("litecoin%3Altc1qtest", qr_ltc)
         self.assertIn("api.qrserver.com", qr_ltc)
 
+    def test_database_shoppex_email_and_invoice(self):
+        """Test storing and retrieving client email and Shoppex metadata."""
+        inv_id = "INV-SHX123"
+        self.db.create_crypto_invoice(
+            invoice_id=inv_id,
+            discord_user_id=98765,
+            guild_id=12345,
+            product_id="prod_nitro",
+            product_name="Discord Nitro 1M",
+            token="LTC",
+            expected_crypto_amount=0.085,
+            fiat_amount=5.0,
+            fiat_currency="EUR",
+            deposit_address="ltc1qshoppexreceivingaddr",
+            customer_email="buyer@example.com",
+            shoppex_uniqid="shx_uniqid_999",
+            shoppex_url="https://checkout.shoppex.io/invoice/shx_uniqid_999"
+        )
+        inv = self.db.get_crypto_invoice(inv_id)
+        self.assertIsNotNone(inv)
+        self.assertEqual(inv["customer_email"], "buyer@example.com")
+        self.assertEqual(inv["shoppex_uniqid"], "shx_uniqid_999")
+        self.assertEqual(inv["shoppex_url"], "https://checkout.shoppex.io/invoice/shx_uniqid_999")
+        self.assertEqual(inv["deposit_address"], "ltc1qshoppexreceivingaddr")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

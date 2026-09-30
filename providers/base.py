@@ -43,3 +43,19 @@ class StoreProvider(ABC):
     def get_checkout_url(self, product_id: str) -> str:
         """Generate direct public checkout URL for a product."""
         pass
+
+    async def create_crypto_payment(
+        self,
+        title: str,
+        customer_email: str,
+        value: float,
+        currency: str,
+        token: str
+    ) -> Dict[str, Any]:
+        """Optional: creates a native crypto payment invoice on the platform."""
+        return {"success": False, "message": "Not supported on this provider."}
+
+    async def get_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        """Optional: fetch invoice details directly from the provider."""
+        return None
+

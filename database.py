@@ -58,6 +58,9 @@ class OrderDatabase:
                     fiat_amount REAL NOT NULL,
                     fiat_currency TEXT NOT NULL,
                     deposit_address TEXT NOT NULL,
+                    customer_email TEXT DEFAULT '',
+                    shoppex_uniqid TEXT DEFAULT '',
+                    shoppex_url TEXT DEFAULT '',
                     status TEXT DEFAULT 'PENDING',
                     txid TEXT DEFAULT '',
                     ticket_channel_id INTEGER DEFAULT 0,
@@ -65,7 +68,18 @@ class OrderDatabase:
                     paid_at TEXT
                 )
             """)
+            # Auto-migrate columns if database already existed
+            for col, col_type in [
+                ("customer_email", "TEXT DEFAULT ''"),
+                ("shoppex_uniqid", "TEXT DEFAULT ''"),
+                ("shoppex_url", "TEXT DEFAULT ''")
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE crypto_invoices ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
+
 
     # --- Verified Orders ---
     def is_order_claimed(self, order_id: str) -> Optional[Dict[str, Any]]:
@@ -147,7 +161,10 @@ class OrderDatabase:
         expected_crypto_amount: float,
         fiat_amount: float,
         fiat_currency: str,
-        deposit_address: str
+        deposit_address: str,
+        customer_email: str = "",
+        shoppex_uniqid: str = "",
+        shoppex_url: str = ""
     ) -> bool:
         now_iso = datetime.now(timezone.utc).isoformat()
         try:
@@ -157,17 +174,18 @@ class OrderDatabase:
                     INSERT INTO crypto_invoices (
                         invoice_id, discord_user_id, guild_id, product_id, product_name,
                         token, expected_crypto_amount, fiat_amount, fiat_currency,
-                        deposit_address, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                        deposit_address, customer_email, shoppex_uniqid, shoppex_url, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
                 """, (
                     invoice_id, discord_user_id, guild_id, product_id, product_name,
                     token.upper(), expected_crypto_amount, fiat_amount, fiat_currency,
-                    deposit_address, now_iso
+                    deposit_address, customer_email.strip(), shoppex_uniqid.strip(), shoppex_url.strip(), now_iso
                 ))
                 conn.commit()
                 return True
         except Exception as e:
             return False
+
 
     def get_crypto_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:

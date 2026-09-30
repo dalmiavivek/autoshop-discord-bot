@@ -33,44 +33,79 @@ class InvoiceRefreshView(discord.ui.View):
 
 
 
-class DMCryptoTokenSelect(discord.ui.View):
-    """View to select crypto payment currency (LTC, USDT, BTC, SOL)."""
+class ClientEmailModal(discord.ui.Modal, title="📧 Enter Email for Shoppex Invoice"):
+    """Modal that prompts the client for their email address and creates a Shoppex crypto invoice."""
+    email_input = discord.ui.TextInput(
+        label="Your Email Address (for order & delivery)",
+        placeholder="client@example.com",
+        min_length=5,
+        max_length=100,
+        required=True
+    )
 
-    def __init__(self, bot: commands.Bot, product: Dict[str, Any], guild_id: int):
-        super().__init__(timeout=180)
+    def __init__(self, bot: commands.Bot, product: Dict[str, Any], token: str, guild_id: int):
+        super().__init__()
         self.bot = bot
         self.product = product
+        self.token = token
         self.guild_id = guild_id
 
-    async def _handle_token_choice(self, interaction: discord.Interaction, token: str):
-        await interaction.response.defer()
-        db: OrderDatabase = self.bot.db
-
-        # 1. Resolve Admin Address for selected token
-        crypto_entry = db.get_crypto_address(token)
-        deposit_address = ""
-        if crypto_entry and crypto_entry.get("address"):
-            deposit_address = crypto_entry["address"]
-        else:
-            # Fallback to environment variables
-            env_key = f"PAYOUT_{token.upper()}_ADDRESS"
-            deposit_address = os.getenv(env_key, "").strip()
-
-        if not deposit_address:
-            await interaction.followup.send(
-                f"⚠️ The store admin has not configured a receiving address for **{token}** yet.\n"
-                f"Please choose another payment method or ask an admin to run `/setcrypto`.",
-                ephemeral=True
-            )
+    async def on_submit(self, interaction: discord.Interaction):
+        client_email = self.email_input.value.strip()
+        if "@" not in client_email or "." not in client_email:
+            await interaction.response.send_message("❌ Please provide a valid email address.", ephemeral=True)
             return
 
-        # 2. Calculate live crypto price and exact amount with micro-offset
-        fiat_amount = float(self.product.get("price", 0.0))
-        fiat_currency = self.product.get("currency", "USD")
+        await interaction.response.defer()
+        db: OrderDatabase = self.bot.db
+        provider: StoreProvider = self.bot.provider
 
-        crypto_price = await get_crypto_price(token, fiat=fiat_currency)
-        seed = int(interaction.user.id % 1000)
-        expected_crypto = calculate_invoice_crypto_amount(fiat_amount, crypto_price, seed, token)
+        fiat_amount = float(self.product.get("price", 0.0))
+        fiat_currency = self.product.get("currency", "EUR")
+
+        deposit_address = ""
+        expected_crypto = 0.0
+        shoppex_uniqid = ""
+        shoppex_url = ""
+        source_label = "Shoppex"
+
+        # 1. Primary: Generate unique receiving address via Shoppex API with client email
+        if hasattr(provider, "create_crypto_payment"):
+            shx_res = await provider.create_crypto_payment(
+                title=self.product["name"],
+                customer_email=client_email,
+                value=fiat_amount,
+                currency=fiat_currency,
+                token=self.token
+            )
+            if shx_res.get("success") and shx_res.get("crypto_address"):
+                deposit_address = shx_res["crypto_address"]
+                expected_crypto = float(shx_res.get("crypto_amount") or 0.0)
+                shoppex_uniqid = shx_res.get("uniqid") or ""
+                shoppex_url = shx_res.get("checkout_url") or ""
+                source_label = "Shoppex Native Crypto"
+
+        # 2. Fallback: If Shoppex does not have this specific chain configured
+        if not deposit_address:
+            crypto_entry = db.get_crypto_address(self.token)
+            if crypto_entry and crypto_entry.get("address"):
+                deposit_address = crypto_entry["address"]
+            else:
+                env_key = f"PAYOUT_{self.token.upper()}_ADDRESS"
+                deposit_address = os.getenv(env_key, "").strip()
+
+            if not deposit_address:
+                await interaction.followup.send(
+                    f"⚠️ The store does not have **{self.token}** enabled in Shoppex or configured via `/setcrypto`.\n"
+                    f"Please choose another payment token or contact an administrator.",
+                    ephemeral=True
+                )
+                return
+
+            crypto_price = await get_crypto_price(self.token, fiat=fiat_currency)
+            seed = int(interaction.user.id % 1000)
+            expected_crypto = calculate_invoice_crypto_amount(fiat_amount, crypto_price, seed, self.token)
+            source_label = "Admin Wallet"
 
         # 3. Create Invoice in Database
         invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
@@ -80,49 +115,72 @@ class DMCryptoTokenSelect(discord.ui.View):
             guild_id=self.guild_id,
             product_id=self.product["id"],
             product_name=self.product["name"],
-            token=token,
+            token=self.token,
             expected_crypto_amount=expected_crypto,
             fiat_amount=fiat_amount,
             fiat_currency=fiat_currency,
-            deposit_address=deposit_address
+            deposit_address=deposit_address,
+            customer_email=client_email,
+            shoppex_uniqid=shoppex_uniqid,
+            shoppex_url=shoppex_url
         )
 
-        qr_url = get_qr_code_url(token, deposit_address, expected_crypto)
+        qr_url = get_qr_code_url(self.token, deposit_address, expected_crypto)
 
         # 4. Render Invoice Embed
         embed = discord.Embed(
             title=f"🧾 Crypto Invoice: {self.product['name']}",
             description=(
-                f"Please send the exact amount of **{token}** to the address below.\n"
-                f"Payment status is monitored **24/7 in real time**."
+                f"Your payment receiving address has been generated by **{source_label}**.\n"
+                f"Please transfer the exact amount of **{self.token}** to complete your order."
             ),
             color=discord.Color.gold()
         )
-        embed.add_field(name="💰 Exact Amount to Send", value=f"```{expected_crypto} {token}``` *(~{fiat_currency} {fiat_amount:.2f})*", inline=False)
-        embed.add_field(name=f"📥 Receiving {token} Address (Tap to Copy)", value=f"```{deposit_address}```", inline=False)
+        embed.add_field(name="💰 Exact Amount to Send", value=f"```{expected_crypto} {self.token}``` *(~{fiat_currency} {fiat_amount:.2f})*", inline=False)
+        embed.add_field(name=f"📥 Receiving {self.token} Address (From Shoppex - Tap to Copy)", value=f"```{deposit_address}```", inline=False)
+        embed.add_field(name="📧 Client Email", value=f"`{client_email}`", inline=True)
         embed.add_field(name="⏳ Status", value="`Waiting for blockchain payment...`", inline=True)
         embed.add_field(name="🆔 Invoice ID", value=f"`{invoice_id}`", inline=True)
+
+        if shoppex_url:
+            embed.add_field(name="🌐 Official Shoppex Checkout", value=f"[Open Invoice Link]({shoppex_url})", inline=False)
+
         embed.set_image(url=qr_url)
-        embed.set_footer(text="After sending, click 'Refresh Status' below or wait for auto-detection.")
+        embed.set_footer(text="Monitored 24/7. Click 'Refresh Status' below once sent.")
 
         view = InvoiceRefreshView(self.bot, invoice_id)
         await interaction.followup.send(embed=embed, view=view)
 
+
+class DMCryptoTokenSelect(discord.ui.View):
+    """View to select crypto payment currency (LTC, USDT, BTC, SOL)."""
+
+    def __init__(self, bot: commands.Bot, product: Dict[str, Any], guild_id: int):
+        super().__init__(timeout=180)
+        self.bot = bot
+        self.product = product
+        self.guild_id = guild_id
+
+    async def _open_email_modal(self, interaction: discord.Interaction, token: str):
+        modal = ClientEmailModal(self.bot, self.product, token, self.guild_id)
+        await interaction.response.send_modal(modal)
+
     @discord.ui.button(label="Litecoin (LTC)", style=discord.ButtonStyle.success, emoji="🪙")
     async def btn_ltc(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_token_choice(interaction, "LTC")
+        await self._open_email_modal(interaction, "LTC")
 
     @discord.ui.button(label="USDT (TRC-20)", style=discord.ButtonStyle.primary, emoji="💵")
     async def btn_usdt(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_token_choice(interaction, "USDT")
+        await self._open_email_modal(interaction, "USDT")
 
     @discord.ui.button(label="Bitcoin (BTC)", style=discord.ButtonStyle.secondary, emoji="₿")
     async def btn_btc(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_token_choice(interaction, "BTC")
+        await self._open_email_modal(interaction, "BTC")
 
     @discord.ui.button(label="Solana (SOL)", style=discord.ButtonStyle.secondary, emoji="🟣")
     async def btn_sol(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_token_choice(interaction, "SOL")
+        await self._open_email_modal(interaction, "SOL")
+
 
 
 
@@ -202,30 +260,65 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
         except discord.Forbidden:
             await interaction.response.send_message("❌ Could not DM you. Please enable 'Allow direct messages from server members' in your privacy settings.", ephemeral=True)
 
+    async def check_and_fulfill_invoice(self, inv: Dict[str, Any]) -> tuple[bool, Dict[str, Any]]:
+        """
+        Checks payment status both through Shoppex invoice API and direct blockchain explorers.
+        Returns (True, tx_info) if paid, else (False, {}).
+        """
+        db: OrderDatabase = self.bot.db
+        provider: StoreProvider = self.bot.provider
+
+        # 1. Check Shoppex status if invoice was generated via Shoppex
+        if inv.get("shoppex_uniqid") and hasattr(provider, "get_invoice"):
+            try:
+                shx_inv = await provider.get_invoice(inv["shoppex_uniqid"])
+                if shx_inv and shx_inv.get("is_paid"):
+                    txid = shx_inv.get("crypto_payment_txid") or f"shx_{inv['shoppex_uniqid'][:16]}"
+                    if not db.is_txid_used(txid):
+                        tx_info = {
+                            "found": True,
+                            "confirmed": True,
+                            "txid": txid,
+                            "amount": shx_inv.get("crypto_amount", inv["expected_crypto_amount"]),
+                            "token": inv["token"],
+                            "explorer_url": shx_inv.get("checkout_url") or inv.get("shoppex_url", "")
+                        }
+                        db.update_invoice_status(inv["invoice_id"], "PAID", txid=txid)
+                        await self.fulfill_paid_invoice(inv, tx_info)
+                        return True, tx_info
+            except Exception as e:
+                logger.error(f"Error checking Shoppex invoice {inv['shoppex_uniqid']}: {e}")
+
+        # 2. Check Blockchain Explorer Directly
+        try:
+            tx_info = await check_incoming_blockchain_tx(
+                token=inv["token"],
+                address=inv["deposit_address"],
+                expected_amount=inv["expected_crypto_amount"]
+            )
+            if tx_info and tx_info.get("found"):
+                txid = tx_info.get("txid", "")
+                if txid and db.is_txid_used(txid):
+                    return False, {}
+                db.update_invoice_status(inv["invoice_id"], "PAID", txid=txid)
+                await self.fulfill_paid_invoice(inv, tx_info)
+                return True, tx_info
+        except Exception as e:
+            logger.error(f"Error checking blockchain for {inv['invoice_id']}: {e}")
+
+        return False, {}
+
     @tasks.loop(seconds=25)
     async def refresh_invoices_task(self):
-        """24/7 background task that automatically monitors and refreshes blockchain payments."""
+        """24/7 background task that automatically monitors Shoppex and blockchain payments."""
         db: OrderDatabase = self.bot.db
         pending_invoices = db.get_pending_crypto_invoices()
 
         for inv in pending_invoices:
             try:
-                tx_info = await check_incoming_blockchain_tx(
-                    token=inv["token"],
-                    address=inv["deposit_address"],
-                    expected_amount=inv["expected_crypto_amount"]
-                )
-
-                if tx_info and tx_info.get("found"):
-                    txid = tx_info.get("txid", "")
-                    if txid and db.is_txid_used(txid):
-                        logger.warning(f"Skipping txid {txid} because it was already processed for another invoice.")
-                        continue
-
-                    logger.info(f"Payment detected on blockchain for invoice {inv['invoice_id']}!")
-                    db.update_invoice_status(inv["invoice_id"], "PAID", txid=txid)
-                    await self.fulfill_paid_invoice(inv, tx_info)
-
+                paid, tx_info = await self.check_and_fulfill_invoice(inv)
+                if paid:
+                    logger.info(f"Payment detected & fulfilled for invoice {inv['invoice_id']}!")
             except Exception as e:
                 logger.error(f"Error checking pending invoice {inv['invoice_id']}: {e}")
 
@@ -248,21 +341,10 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
             await interaction.followup.send(f"✅ **Payment already confirmed!** Your order ticket is active in {channel_link}.", ephemeral=True)
             return
 
-        tx_info = await check_incoming_blockchain_tx(
-            token=inv["token"],
-            address=inv["deposit_address"],
-            expected_amount=inv["expected_crypto_amount"]
-        )
-
-        if tx_info and tx_info.get("found"):
+        paid, tx_info = await self.check_and_fulfill_invoice(inv)
+        if paid:
             txid = tx_info.get("txid", "")
-            if txid and db.is_txid_used(txid):
-                await interaction.followup.send("⚠️ This transaction was already processed for another invoice.", ephemeral=True)
-                return
-
-            db.update_invoice_status(inv["invoice_id"], "PAID", txid=txid)
-            await interaction.followup.send(f"🎉 **Payment Detected on Blockchain!** TXID: `{txid[:16]}...` Creating your order ticket...", ephemeral=True)
-            await self.fulfill_paid_invoice(inv, tx_info)
+            await interaction.followup.send(f"🎉 **Payment Detected & Confirmed!** TXID: `{txid[:16]}...` Creating your order ticket...", ephemeral=True)
         else:
             await interaction.followup.send(
                 f"⏳ **Still waiting for blockchain payment...**\n"
@@ -271,6 +353,7 @@ class DMShopCog(commands.Cog, name="DM Shop & Crypto"):
                 f"*Transactions usually take 1-3 minutes to confirm on the network.*",
                 ephemeral=True
             )
+
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):

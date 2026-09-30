@@ -140,13 +140,19 @@ async def create_order_ticket(
             color=discord.Color.green()
         )
         embed.add_field(name="📦 Product", value=f"**{invoice['product_name']}**", inline=False)
+        if invoice.get("customer_email"):
+            embed.add_field(name="📧 Client Email", value=f"`{invoice['customer_email']}`", inline=True)
         embed.add_field(name="💰 Amount Paid", value=f"**{crypto_amt} {token}** (~{fiat_curr} {fiat_amt:.2f})", inline=True)
         embed.add_field(name="🔗 Blockchain TXID", value=tx_link, inline=True)
         embed.add_field(name="📥 Receiving Address", value=f"`{invoice['deposit_address']}`", inline=False)
 
+        if invoice.get("shoppex_url"):
+            embed.add_field(name="🌐 Shoppex Invoice", value=f"[Open in Shoppex]({invoice['shoppex_url']})", inline=True)
+
         forward_payout = invoice.get("forward_payout_address", "")
         if forward_payout:
             embed.add_field(name="📤 Forward Destination Payout", value=f"`{forward_payout}`", inline=False)
+
 
         if delivery_info:
             embed.add_field(name="📋 Delivery & Instructions", value=delivery_info, inline=False)
